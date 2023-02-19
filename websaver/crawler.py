@@ -1,9 +1,13 @@
 import requests
 from bs4 import BeautifulSoup, PageElement
 
-from parsed_data.models import Notice
+import os
+import django
 
-import pymysql
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'websaver.settings')
+django.setup()
+
+from parsed_data.models import Notice
 
 URLs = {
         '전체': 'https://computer.knu.ac.kr/bbs/board.php?bo_table=sub5_1',
@@ -32,7 +36,7 @@ class Crawler:
 
         return list(soup.select('tbody tr:not(.bo_notice) td.td_subject div.bo_tit a'))
 
-    def __get_notice_data(self, notice: PageElement) -> Notice:
+    def __get_notice_data(self, notice: PageElement) -> tuple[int, str, str, str, str, str]:
         link = notice.get('href')
         num = int(link.split('wr_id')[-1].split('&')[0].replace('=', ''))
 
@@ -44,9 +48,9 @@ class Crawler:
         created_at = '20' + soup.select_one('.if_date').text.replace('작성일 ', '') + ':00'
         content = soup.select_one('#bo_v_con').text.strip().replace('\xa0', '')
 
-        return Notice(None, num, link, title, category, created_at, content)
+        return (num, link, title, category, created_at, content)
 
-    def crawl_notice_from_web(self, search_category: str='전체', amount: int=-1) -> list[Notice]:
+    def crawl_notice_from_web(self, search_category: str='전체', amount: int=-1) -> list[tuple]:
         """공지사항을 크롤링하는 함수
 
         Args:
@@ -78,3 +82,25 @@ class Crawler:
                 notice_list.append(self.__get_notice_data(notice))
 
         return notice_list
+
+    def save_notice_to_db(self, notice_list: list[tuple]):
+        """크롤링한 공지사항을 DB에 저장하는 함수
+
+        Args:
+            notice_list (list[Notice]): 크롤링한 공지사항 리스트
+        """
+
+        for notice in notice_list:
+            Notice.objects.create(
+                num=notice[0],
+                link=notice[1],
+                title=notice[2],
+                category=notice[3],
+                created_at=notice[4],
+                content=notice[5]
+            )
+
+if __name__ == '__main__':
+    crawler = Crawler()
+    notice_list = crawler.crawl_notice_from_web('전체', 10)
+    crawler.save_notice_to_db(notice_list)
